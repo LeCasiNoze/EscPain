@@ -1,3 +1,4 @@
+// web/src/pages/AdminPage.tsx
 import * as React from "react";
 import { Link } from "react-router-dom";
 import {
@@ -11,7 +12,7 @@ import {
   adminRescheduleOrder,
   adminSetOrderStatus,
   adminUpsertCustomer,
-  adminUploadImage, // ✅ NEW
+  adminUploadImage,
   type AdminOrder,
   type AdminOrdersSummary,
   type AdminProduct,
@@ -25,8 +26,8 @@ const API_BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").repl
 function imgSrc(u?: string | null) {
   const s = String(u ?? "").trim();
   if (!s) return "";
-  if (/^https?:\/\//i.test(s)) return s;          // déjà absolu
-  if (s.startsWith("data:")) return s;            // au cas où
+  if (/^https?:\/\//i.test(s)) return s; // déjà absolu
+  if (s.startsWith("data:")) return s;
   return `${API_BASE}${s.startsWith("/") ? "" : "/"}${s}`; // relatif -> API
 }
 
@@ -141,13 +142,7 @@ function csvEscape(v: any) {
 
 /* ------------------------------ UI helpers ------------------------------ */
 
-function AdminHeader({
-  subtitle,
-  onLogout,
-}: {
-  subtitle: string;
-  onLogout: () => void;
-}) {
+function AdminHeader({ subtitle, onLogout }: { subtitle: string; onLogout: () => void }) {
   return (
     <header className="border-b bg-white">
       <div className="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
@@ -282,13 +277,7 @@ function AdminHomeView({
 
 /* ------------------------------- Products -------------------------------- */
 
-function AdminProductsView({
-  pass,
-  onBack,
-}: {
-  pass: string;
-  onBack: () => void;
-}) {
+function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void }) {
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -308,7 +297,6 @@ function AdminProductsView({
   async function handleUploadImage(file: File) {
     setErr(null);
 
-    // petite sécurité (le backend filtre déjà)
     const ok = ["image/jpeg", "image/png", "image/webp"].includes(file.type);
     if (!ok) {
       setErr("Format d'image invalide (jpg/png/webp).");
@@ -344,7 +332,7 @@ function AdminProductsView({
   }
 
   React.useEffect(() => {
-    loadProducts();
+    void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -554,7 +542,6 @@ function AdminProductsView({
                       onChange={(e) => {
                         const f = e.currentTarget.files?.[0];
                         if (f) void handleUploadImage(f);
-                        // reset input pour pouvoir re-sélectionner le même fichier
                         e.currentTarget.value = "";
                       }}
                     />
@@ -607,13 +594,7 @@ function AdminProductsView({
 
 /* -------------------------------- Orders -------------------------------- */
 
-function AdminOrdersView({
-  pass,
-  onBack,
-}: {
-  pass: string;
-  onBack: () => void;
-}) {
+function AdminOrdersView({ pass, onBack }: { pass: string; onBack: () => void }) {
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -656,7 +637,7 @@ function AdminOrdersView({
   }
 
   React.useEffect(() => {
-    loadOrders();
+    void loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekPos, location, status, sort, dayFilter]);
 
@@ -755,7 +736,7 @@ function AdminOrdersView({
               <select
                 className="border rounded-xl px-3 py-2 bg-white"
                 value={dayFilter}
-                onChange={(e) => setDayFilter(e.target.value as any)}
+                onChange={(e) => setDayFilter(e.target.value as "both" | "sat" | "sun")}
               >
                 <option value="both">Samedi + Dimanche</option>
                 <option value="sat">Samedi uniquement</option>
@@ -765,7 +746,7 @@ function AdminOrdersView({
               <select
                 className="border rounded-xl px-3 py-2 bg-white"
                 value={location}
-                onChange={(e) => setLocation(e.target.value as any)}
+                onChange={(e) => setLocation(e.target.value as "all" | "Lombard" | "Village X")}
               >
                 <option value="all">Tous lieux</option>
                 <option value="Lombard">Lombard</option>
@@ -775,7 +756,7 @@ function AdminOrdersView({
               <select
                 className="border rounded-xl px-3 py-2 bg-white"
                 value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
+                onChange={(e) => setStatus(e.target.value as "pending" | "fulfilled" | "canceled" | "all")}
               >
                 <option value="pending">En cours</option>
                 <option value="fulfilled">Validés</option>
@@ -786,7 +767,7 @@ function AdminOrdersView({
               <select
                 className="border rounded-xl px-3 py-2 bg-white"
                 value={sort}
-                onChange={(e) => setSort(e.target.value as any)}
+                onChange={(e) => setSort(e.target.value as "date" | "location")}
               >
                 <option value="date">Tri: date</option>
                 <option value="location">Tri: lieu puis date</option>
@@ -881,7 +862,7 @@ function AdminOrdersView({
 
                       <button
                         className="px-3 py-2 rounded-xl border bg-white"
-                        onClick={() => setOrderStatus(o, "canceled")}
+                        onClick={() => void setOrderStatus(o, "canceled")}
                         disabled={o.status === "canceled"}
                       >
                         Annuler
@@ -889,7 +870,7 @@ function AdminOrdersView({
 
                       <button
                         className="px-3 py-2 rounded-xl bg-zinc-900 text-white font-semibold disabled:opacity-50"
-                        onClick={() => setOrderStatus(o, "fulfilled")}
+                        onClick={() => void setOrderStatus(o, "fulfilled")}
                         disabled={o.status === "fulfilled"}
                       >
                         Valider
@@ -934,7 +915,7 @@ function AdminOrdersView({
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={resLocation}
-                  onChange={(e) => setResLocation(e.target.value as any)}
+                  onChange={(e) => setResLocation(e.target.value as "Lombard" | "Village X")}
                 >
                   <option value="Lombard">Lombard</option>
                   <option value="Village X">Village X</option>
@@ -982,7 +963,7 @@ function AdminOrdersView({
               <div className="flex items-center gap-2 pt-2">
                 <button
                   className="flex-1 px-3 py-2 rounded-xl bg-zinc-900 text-white font-semibold disabled:opacity-50"
-                  onClick={confirmReschedule}
+                  onClick={() => void confirmReschedule()}
                   disabled={loading || !resPickupDate}
                 >
                   {loading ? "…" : "Confirmer le report"}
@@ -1005,13 +986,7 @@ function AdminOrdersView({
 
 /* ------------------------------ Accounts -------------------------------- */
 
-function AdminAccountsView({
-  pass,
-  onBack,
-}: {
-  pass: string;
-  onBack: () => void;
-}) {
+function AdminAccountsView({ pass, onBack }: { pass: string; onBack: () => void }) {
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -1051,7 +1026,7 @@ function AdminAccountsView({
   }
 
   React.useEffect(() => {
-    loadStats();
+    void loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1161,7 +1136,6 @@ function AdminAccountsView({
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <AdminHeader subtitle="Tenue de compte (Excel)" onLogout={() => {}} />
       <BackRow label="Retour dashboard" onBack={onBack} />
 
       <div className="mx-auto max-w-5xl px-4 pb-10 space-y-4">
@@ -1191,7 +1165,7 @@ function AdminAccountsView({
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={statsLocation}
-                  onChange={(e) => setStatsLocation(e.target.value as any)}
+                  onChange={(e) => setStatsLocation(e.target.value as "all" | "Lombard" | "Village X")}
                 >
                   <option value="all">Tous lieux</option>
                   <option value="Lombard">Lombard</option>
@@ -1203,7 +1177,7 @@ function AdminAccountsView({
                 <select
                   className="w-full border rounded-xl px-3 py-2 bg-white"
                   value={statsStatus}
-                  onChange={(e) => setStatsStatus(e.target.value as any)}
+                  onChange={(e) => setStatsStatus(e.target.value as "fulfilled" | "pending" | "canceled" | "all")}
                 >
                   <option value="fulfilled">Validés (compta)</option>
                   <option value="pending">En cours</option>
@@ -1229,7 +1203,7 @@ function AdminAccountsView({
 
               <button
                 className="px-4 py-2 rounded-xl bg-zinc-900 text-white font-semibold disabled:opacity-50"
-                onClick={loadStats}
+                onClick={() => void loadStats()}
                 disabled={loading}
               >
                 {loading ? "…" : "Actualiser"}
@@ -1264,7 +1238,9 @@ function AdminAccountsView({
           <div className="bg-white border rounded-2xl p-4">
             <div className="text-xs text-zinc-600">Panier moyen</div>
             <div className="text-2xl font-extrabold">
-              {stats && stats.totals.ordersCount > 0 ? eur(Math.round(stats.totals.totalAmountCents / stats.totals.ordersCount)) : "0,00 €"}
+              {stats && stats.totals.ordersCount > 0
+                ? eur(Math.round(stats.totals.totalAmountCents / stats.totals.ordersCount))
+                : "0,00 €"}
             </div>
           </div>
         </div>
@@ -1294,7 +1270,9 @@ function AdminAccountsView({
             <table className="min-w-[1100px] w-full border-separate border-spacing-0">
               <thead>
                 <tr>
-                  <th className="sticky left-0 bg-white z-10 border-b text-left text-xs text-zinc-600 px-3 py-2">Client</th>
+                  <th className="sticky left-0 bg-white z-10 border-b text-left text-xs text-zinc-600 px-3 py-2">
+                    Client
+                  </th>
                   <th className="border-b text-right text-xs text-zinc-600 px-3 py-2">Bons</th>
                   <th className="border-b text-right text-xs text-zinc-600 px-3 py-2">Produits</th>
                   <th className="border-b text-right text-xs text-zinc-600 px-3 py-2">Total €</th>
@@ -1312,7 +1290,7 @@ function AdminAccountsView({
                   return (
                     <tr key={c.email} className="hover:bg-zinc-50">
                       <td className="sticky left-0 bg-white z-10 border-b px-3 py-2">
-                        <button className="text-left w-full" onClick={() => openCustomer(c.email)}>
+                        <button className="text-left w-full" onClick={() => void openCustomer(c.email)}>
                           <div className="font-semibold truncate">{name}</div>
                           <div className="text-xs text-zinc-600 truncate">
                             {c.email}
@@ -1337,7 +1315,9 @@ function AdminAccountsView({
                     <td className="sticky left-0 bg-zinc-50 z-10 border-t px-3 py-3 font-extrabold">TOTAL</td>
                     <td className="border-t px-3 py-3 text-right font-extrabold">{stats.totals.ordersCount}</td>
                     <td className="border-t px-3 py-3 text-right font-extrabold">{stats.totals.totalItemsQuantity}</td>
-                    <td className="border-t px-3 py-3 text-right font-extrabold">{eur(stats.totals.totalAmountCents)}</td>
+                    <td className="border-t px-3 py-3 text-right font-extrabold">
+                      {eur(stats.totals.totalAmountCents)}
+                    </td>
                     {productCols.map((pn) => (
                       <td key={pn} className="border-t px-3 py-3 text-right font-semibold">
                         {totalsRow?.[pn] ?? 0}
@@ -1403,7 +1383,7 @@ function AdminAccountsView({
             <div className="mt-3 flex items-center gap-2">
               <button
                 className="px-4 py-2 rounded-xl bg-zinc-900 text-white font-semibold disabled:opacity-50"
-                onClick={saveCustomer}
+                onClick={() => void saveCustomer()}
                 disabled={loading}
               >
                 {loading ? "…" : "Enregistrer fiche client"}
@@ -1478,7 +1458,6 @@ export function AdminPage() {
     setErr(null);
     setLoading(true);
     try {
-      // simple ping: list products
       await adminListProducts(pass);
       localStorage.setItem(LS_KEY, pass);
       setAuthed(true);
@@ -1500,18 +1479,9 @@ export function AdminPage() {
   }
 
   if (!authed) {
-    return (
-      <AdminLoginView
-        pass={pass}
-        setPass={setPass}
-        loading={loading}
-        err={err}
-        onLogin={login}
-      />
-    );
+    return <AdminLoginView pass={pass} setPass={setPass} loading={loading} err={err} onLogin={login} />;
   }
 
-  // header global (vues internes ont leur header, mais on peut garder celui-ci pour Home)
   if (view === "home") {
     return (
       <div className="min-h-screen bg-zinc-50 text-zinc-900">
