@@ -14,7 +14,13 @@ export function migrate() {
       description TEXT NOT NULL DEFAULT '',
       price_cents INTEGER NOT NULL,
       image_url TEXT NOT NULL DEFAULT '',
-      weight_grams INTEGER, -- NEW (nullable)
+      weight_grams INTEGER, -- nullable
+
+      -- ✅ NEW: variantes (slot multi-produits)
+      variant_group TEXT,
+      variant_label TEXT,
+      variant_sort INTEGER,
+
       is_available INTEGER NOT NULL DEFAULT 1,
       unavailable_reason TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -26,7 +32,7 @@ export function migrate() {
       public_code TEXT NOT NULL UNIQUE,
       customer_name TEXT NOT NULL,
       customer_email TEXT NOT NULL,
-      customer_phone TEXT NOT NULL DEFAULT '', -- NEW
+      customer_phone TEXT NOT NULL DEFAULT '',
       pickup_date TEXT NOT NULL, -- YYYY-MM-DD
       pickup_location TEXT NOT NULL DEFAULT 'Lombard',
       status TEXT NOT NULL DEFAULT 'pending',
@@ -68,10 +74,12 @@ export function migrate() {
     `ALTER TABLE products ADD COLUMN weight_grams INTEGER`
   );
 
+  // ✅ NEW: variantes
+  addColumnIfMissing("products", "variant_group", `ALTER TABLE products ADD COLUMN variant_group TEXT`);
+  addColumnIfMissing("products", "variant_label", `ALTER TABLE products ADD COLUMN variant_label TEXT`);
+  addColumnIfMissing("products", "variant_sort", `ALTER TABLE products ADD COLUMN variant_sort INTEGER`);
+
   // -------------------- SEED MENU PAIN --------------------
-  // Stratégie :
-  // - si table vide -> seed menu
-  // - si elle ne contient QUE des produits démo -> on remplace par le menu
   const rows = db.prepare(`SELECT id, name FROM products ORDER BY id ASC`).all() as Array<any>;
   const names = rows.map((r) => String(r.name || ""));
 
@@ -80,8 +88,6 @@ export function migrate() {
     names.every((n) => n.startsWith("Produit Démo") || n === "Produit Indisponible");
 
   if (rows.length === 0 || looksLikeDemoOnly) {
-    // ⚠️ si tu as déjà des commandes réelles en DB, évite de supprimer.
-    // Ici on est en dev, donc ok.
     db.exec(`DELETE FROM products;`);
     db.exec(`DELETE FROM sqlite_sequence WHERE name='products';`);
 
@@ -93,6 +99,9 @@ export function migrate() {
         weight_grams: 600,
         price_cents: 280,
         image_url: "https://source.unsplash.com/800x600/?bread",
+        variant_group: "Pain",
+        variant_label: "600g",
+        variant_sort: 10,
       },
       {
         name: "Pain (800g)",
@@ -100,6 +109,9 @@ export function migrate() {
         weight_grams: 800,
         price_cents: 350,
         image_url: "https://source.unsplash.com/800x600/?bread",
+        variant_group: "Pain",
+        variant_label: "800g",
+        variant_sort: 20,
       },
       {
         name: "Pain (1000g)",
@@ -107,27 +119,42 @@ export function migrate() {
         weight_grams: 1000,
         price_cents: 420,
         image_url: "https://source.unsplash.com/800x600/?bread",
+        variant_group: "Pain",
+        variant_label: "1000g",
+        variant_sort: 30,
       },
+
       {
         name: "Miche (1000g)",
         description: "Miche artisanale.",
         weight_grams: 1000,
         price_cents: 420,
         image_url: "https://source.unsplash.com/800x600/?bread",
+        variant_group: "Miche",
+        variant_label: "1000g",
+        variant_sort: 10,
       },
+
       {
         name: "Couronne (600g)",
         description: "Couronne artisanale.",
         weight_grams: 600,
         price_cents: 300,
         image_url: "https://source.unsplash.com/800x600/?bread",
+        variant_group: "Couronne",
+        variant_label: "600g",
+        variant_sort: 10,
       },
+
       {
         name: "Tonic Céréales (600g)",
         description: "Pain céréales.",
         weight_grams: 600,
         price_cents: 350,
         image_url: "https://source.unsplash.com/800x600/?whole-grain-bread",
+        variant_group: "Tonic Céréales",
+        variant_label: "600g",
+        variant_sort: 10,
       },
       {
         name: "Tonic Céréales (1000g)",
@@ -135,15 +162,21 @@ export function migrate() {
         weight_grams: 1000,
         price_cents: 550,
         image_url: "https://source.unsplash.com/800x600/?whole-grain-bread",
+        variant_group: "Tonic Céréales",
+        variant_label: "1000g",
+        variant_sort: 20,
       },
 
-      // Brioches / galettes (pas de poids sur ton menu)
+      // Brioches / galettes
       {
         name: "Brioche Nanterre (petite)",
         description: "Brioche.",
         weight_grams: null,
         price_cents: 600,
         image_url: "https://source.unsplash.com/800x600/?brioche",
+        variant_group: "Brioche Nanterre",
+        variant_label: "petite",
+        variant_sort: 10,
       },
       {
         name: "Brioche Nanterre (grande)",
@@ -151,13 +184,20 @@ export function migrate() {
         weight_grams: null,
         price_cents: 700,
         image_url: "https://source.unsplash.com/800x600/?brioche",
+        variant_group: "Brioche Nanterre",
+        variant_label: "grande",
+        variant_sort: 20,
       },
+
       {
         name: "Galette sèche",
         description: "Galette.",
         weight_grams: null,
         price_cents: 700,
         image_url: "https://source.unsplash.com/800x600/?cake",
+        variant_group: null,
+        variant_label: null,
+        variant_sort: null,
       },
       {
         name: "Galette crème",
@@ -165,6 +205,9 @@ export function migrate() {
         weight_grams: null,
         price_cents: 800,
         image_url: "https://source.unsplash.com/800x600/?cake",
+        variant_group: null,
+        variant_label: null,
+        variant_sort: null,
       },
       {
         name: "Brioche ronde",
@@ -172,6 +215,9 @@ export function migrate() {
         weight_grams: null,
         price_cents: 700,
         image_url: "https://source.unsplash.com/800x600/?brioche",
+        variant_group: null,
+        variant_label: null,
+        variant_sort: null,
       },
       {
         name: "Galette pralines",
@@ -179,12 +225,23 @@ export function migrate() {
         weight_grams: null,
         price_cents: 900,
         image_url: "https://source.unsplash.com/800x600/?cake",
+        variant_group: null,
+        variant_label: null,
+        variant_sort: null,
       },
     ];
 
     const ins = db.prepare(`
-      INSERT INTO products (name, description, price_cents, image_url, weight_grams, is_available, unavailable_reason)
-      VALUES (@name, @description, @price_cents, @image_url, @weight_grams, 1, NULL)
+      INSERT INTO products (
+        name, description, price_cents, image_url, weight_grams,
+        variant_group, variant_label, variant_sort,
+        is_available, unavailable_reason
+      )
+      VALUES (
+        @name, @description, @price_cents, @image_url, @weight_grams,
+        @variant_group, @variant_label, @variant_sort,
+        1, NULL
+      )
     `);
 
     for (const p of seed) ins.run(p);

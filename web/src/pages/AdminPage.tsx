@@ -26,9 +26,9 @@ const API_BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").repl
 function imgSrc(u?: string | null) {
   const s = String(u ?? "").trim();
   if (!s) return "";
-  if (/^https?:\/\//i.test(s)) return s; // déjà absolu
+  if (/^https?:\/\//i.test(s)) return s;
   if (s.startsWith("data:")) return s;
-  return `${API_BASE}${s.startsWith("/") ? "" : "/"}${s}`; // relatif -> API
+  return `${API_BASE}${s.startsWith("/") ? "" : "/"}${s}`;
 }
 
 function eur(cents: number) {
@@ -42,6 +42,16 @@ function parsePriceToCents(v: string) {
   return Math.round(n * 100);
 }
 
+function parseNullableInt(v: string) {
+  const s = v.trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.trunc(n);
+  if (String(i) !== String(Math.trunc(n))) return i;
+  return i;
+}
+
 const LS_KEY = "escpain_admin_pass";
 
 type View = "home" | "products" | "orders" | "accounts";
@@ -51,6 +61,12 @@ type Draft = {
   description: string;
   price: string; // UI "6,50"
   image_url: string;
+
+  weight_grams: string; // UI (nullable)
+  variant_group: string; // UI
+  variant_label: string; // UI
+  variant_sort: string; // UI (nullable)
+
   is_available: boolean;
   unavailable_reason: string;
 };
@@ -61,6 +77,12 @@ function productToDraft(p: AdminProduct): Draft {
     description: p.description ?? "",
     price: (p.price_cents / 100).toFixed(2).replace(".", ","),
     image_url: p.image_url ?? "",
+
+    weight_grams: p.weight_grams != null ? String(p.weight_grams) : "",
+    variant_group: p.variant_group ?? "",
+    variant_label: p.variant_label ?? "",
+    variant_sort: p.variant_sort != null ? String(p.variant_sort) : "",
+
     is_available: p.is_available === 1,
     unavailable_reason: p.unavailable_reason ?? "",
   };
@@ -289,6 +311,12 @@ function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void 
     description: "",
     price: "0,00",
     image_url: "",
+
+    weight_grams: "",
+    variant_group: "",
+    variant_label: "",
+    variant_sort: "",
+
     is_available: true,
     unavailable_reason: "",
   });
@@ -344,6 +372,12 @@ function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void 
       description: "",
       price: "0,00",
       image_url: "",
+
+      weight_grams: "",
+      variant_group: "",
+      variant_label: "",
+      variant_sort: "",
+
       is_available: true,
       unavailable_reason: "",
     });
@@ -363,26 +397,38 @@ function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void 
     if (cents === null) return setErr("Prix invalide.");
     if (!draft.is_available && !draft.unavailable_reason.trim()) return setErr("Motif requis si indisponible.");
 
+    const w = parseNullableInt(draft.weight_grams);
+    if (draft.weight_grams.trim() && (w === null || w <= 0)) return setErr("Poids (g) invalide.");
+
+    const group = draft.variant_group.trim();
+    const label = draft.variant_label.trim();
+    const sort = parseNullableInt(draft.variant_sort);
+    if (draft.variant_sort.trim() && sort === null) return setErr("Ordre variante invalide (entier).");
+    if (group && !label) return setErr("Si tu mets un groupe, il faut un label d'option (ex: petite/grande, 600g/800g).");
+    if (!group && label) return setErr("Label d'option sans groupe : renseigne le groupe ou vide le label.");
+
     setLoading(true);
     try {
+      const body = {
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        price_cents: cents,
+        image_url: draft.image_url.trim(),
+
+        weight_grams: w,
+
+        variant_group: group ? group : null,
+        variant_label: group ? label : null,
+        variant_sort: group ? sort : null,
+
+        is_available: draft.is_available,
+        unavailable_reason: draft.is_available ? null : draft.unavailable_reason.trim(),
+      };
+
       if (creating) {
-        await adminCreateProduct(pass, {
-          name: draft.name.trim(),
-          description: draft.description.trim(),
-          price_cents: cents,
-          image_url: draft.image_url.trim(),
-          is_available: draft.is_available,
-          unavailable_reason: draft.is_available ? null : draft.unavailable_reason.trim(),
-        });
+        await adminCreateProduct(pass, body);
       } else if (editingId != null) {
-        await adminPatchProduct(pass, editingId, {
-          name: draft.name.trim(),
-          description: draft.description.trim(),
-          price_cents: cents,
-          image_url: draft.image_url.trim(),
-          is_available: draft.is_available,
-          unavailable_reason: draft.is_available ? null : draft.unavailable_reason.trim(),
-        });
+        await adminPatchProduct(pass, editingId, body);
       }
       await loadProducts();
       setCreating(false);
@@ -433,6 +479,8 @@ function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {products.map((p) => {
               const available = p.is_available === 1;
+              const isVariant = Boolean((p.variant_group ?? "").trim());
+
               return (
                 <div key={p.id} className="bg-white border rounded-2xl overflow-hidden">
                   {p.image_url ? <img src={imgSrc(p.image_url)} alt="" className="h-36 w-full object-cover" /> : null}
@@ -441,6 +489,14 @@ function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void 
                       <div className="font-semibold leading-tight">{p.name}</div>
                       <div className="text-sm font-extrabold">{eur(p.price_cents)}</div>
                     </div>
+
+                    {isVariant ? (
+                      <div className="mt-1 text-xs text-zinc-600">
+                        Slot : <b>{p.variant_group}</b> · Option : <b>{p.variant_label}</b>
+                        {p.variant_sort != null ? ` · Ordre: ${p.variant_sort}` : ""}
+                      </div>
+                    ) : null}
+
                     <div className="text-sm text-zinc-600 mt-1">{p.description}</div>
 
                     <div className="mt-2 text-xs">
@@ -509,6 +565,53 @@ function AdminProductsView({ pass, onBack }: { pass: string; onBack: () => void 
                     <option value="yes">Disponible</option>
                     <option value="no">Indisponible</option>
                   </select>
+                </div>
+
+                <input
+                  className="w-full border rounded-xl px-3 py-2"
+                  placeholder="Poids (g) — optionnel"
+                  value={draft.weight_grams}
+                  onChange={(e) => setDraft((d) => ({ ...d, weight_grams: e.target.value }))}
+                />
+
+                <div className="border rounded-2xl p-3 bg-zinc-50">
+                  <div className="text-xs text-zinc-700 font-extrabold">Slot multi-produits (variantes)</div>
+                  <div className="text-xs text-zinc-600 mt-1">
+                    Mets le même <b>Groupe</b> sur plusieurs produits pour qu’ils s’affichent dans la même case côté client.
+                  </div>
+
+                  <div className="mt-2 space-y-2">
+                    <input
+                      className="w-full border rounded-xl px-3 py-2 bg-white"
+                      placeholder="Groupe (ex: Brioche Nanterre)"
+                      value={draft.variant_group}
+                      onChange={(e) => setDraft((d) => ({ ...d, variant_group: e.target.value }))}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        className="w-full border rounded-xl px-3 py-2 bg-white"
+                        placeholder="Option (ex: petite)"
+                        value={draft.variant_label}
+                        onChange={(e) => setDraft((d) => ({ ...d, variant_label: e.target.value }))}
+                      />
+                      <input
+                        className="w-full border rounded-xl px-3 py-2 bg-white"
+                        placeholder="Ordre (ex: 10)"
+                        value={draft.variant_sort}
+                        onChange={(e) => setDraft((d) => ({ ...d, variant_sort: e.target.value }))}
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      className="text-sm underline text-zinc-700"
+                      onClick={() =>
+                        setDraft((d) => ({ ...d, variant_group: "", variant_label: "", variant_sort: "" }))
+                      }
+                    >
+                      Retirer du slot (vider variantes)
+                    </button>
+                  </div>
                 </div>
 
                 {!draft.is_available ? (

@@ -43,6 +43,16 @@ function addDaysYMD(ymd: string, days: number) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// fallback compat: "Groupe (Option)"
+function looksLikeParenVariant(name: string) {
+  return /^(.+?)\s*\(([^()]+)\)\s*$/.test(String(name ?? ""));
+}
+function normalizeVariantName(name: string, group: string | null, label: string | null) {
+  const n = String(name ?? "").trim();
+  if (group && label && !looksLikeParenVariant(n)) return `${group} (${label})`;
+  return n;
+}
+
 /* -------------------- PRODUCTS -------------------- */
 
 adminRouter.get("/products", (req, res) => {
@@ -51,7 +61,12 @@ adminRouter.get("/products", (req, res) => {
   const rows = db
     .prepare(
       `
-    SELECT id, name, description, price_cents, image_url, is_available, unavailable_reason, created_at, updated_at
+    SELECT
+      id, name, description, price_cents, image_url,
+      weight_grams,
+      variant_group, variant_label, variant_sort,
+      is_available, unavailable_reason,
+      created_at, updated_at
     FROM products
     ORDER BY id DESC
   `
@@ -66,8 +81,16 @@ const UpsertProduct = z.object({
   description: z.string().trim().default(""),
   price_cents: z.number().int().min(0),
   image_url: z.string().trim().default(""),
+
+  weight_grams: z.number().int().positive().nullable().optional(),
+
   is_available: z.boolean(),
   unavailable_reason: z.string().trim().nullable().optional(),
+
+  // ✅ variantes
+  variant_group: z.string().trim().nullable().optional(),
+  variant_label: z.string().trim().nullable().optional(),
+  variant_sort: z.number().int().min(0).max(999).nullable().optional(),
 });
 
 adminRouter.post("/products", (req, res) => {
@@ -79,14 +102,46 @@ adminRouter.post("/products", (req, res) => {
 
   const reason = p.is_available ? null : (p.unavailable_reason?.trim() || "Indisponible");
 
+  const vg = (p.variant_group ?? null) ? String(p.variant_group).trim() : null;
+  const vl = (p.variant_label ?? null) ? String(p.variant_label).trim() : null;
+  const vs = p.variant_sort ?? null;
+
+  // si group vide -> on force tout à null
+  const finalGroup = vg && vg.length ? vg : null;
+  const finalLabel = finalGroup && vl && vl.length ? vl : null;
+  const finalSort = finalGroup ? (typeof vs === "number" ? vs : null) : null;
+
+  // si group est set mais pas label : on refuse (sinon la “case” est incohérente)
+  if (finalGroup && !finalLabel) {
+    return res.status(400).json({ ok: false, error: "MISSING_VARIANT_LABEL" });
+  }
+
+  const name = normalizeVariantName(p.name, finalGroup, finalLabel);
+
   const r = db
     .prepare(
       `
-    INSERT INTO products (name, description, price_cents, image_url, is_available, unavailable_reason, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO products (
+      name, description, price_cents, image_url,
+      weight_grams,
+      variant_group, variant_label, variant_sort,
+      is_available, unavailable_reason, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `
     )
-    .run(p.name, p.description, p.price_cents, p.image_url, p.is_available ? 1 : 0, reason);
+    .run(
+      name,
+      p.description,
+      p.price_cents,
+      p.image_url,
+      p.weight_grams ?? null,
+      finalGroup,
+      finalLabel,
+      finalSort,
+      p.is_available ? 1 : 0,
+      reason
+    );
 
   res.json({ ok: true, id: Number(r.lastInsertRowid) });
 });
@@ -109,19 +164,64 @@ adminRouter.patch("/products/:id", (req, res) => {
     description: p.description ?? cur.description,
     price_cents: p.price_cents ?? cur.price_cents,
     image_url: p.image_url ?? cur.image_url,
+
+    weight_grams: Object.prototype.hasOwnProperty.call(p, "weight_grams") ? (p as any).weight_grams : cur.weight_grams,
+
     is_available: typeof p.is_available === "boolean" ? p.is_available : cur.is_available === 1,
-    unavailable_reason: p.unavailable_reason ?? cur.unavailable_reason,
+    unavailable_reason: Object.prototype.hasOwnProperty.call(p, "unavailable_reason")
+      ? (p as any).unavailable_reason
+      : cur.unavailable_reason,
+
+    variant_group: Object.prototype.hasOwnProperty.call(p, "variant_group") ? (p as any).variant_group : cur.variant_group,
+    variant_label: Object.prototype.hasOwnProperty.call(p, "variant_label") ? (p as any).variant_label : cur.variant_label,
+    variant_sort: Object.prototype.hasOwnProperty.call(p, "variant_sort") ? (p as any).variant_sort : cur.variant_sort,
   };
 
   const reason = next.is_available ? null : (String(next.unavailable_reason ?? "").trim() || "Indisponible");
 
+  const vg = next.variant_group ? String(next.variant_group).trim() : null;
+  const vl = next.variant_label ? String(next.variant_label).trim() : null;
+
+  const finalGroup = vg && vg.length ? vg : null;
+  const finalLabel = finalGroup && vl && vl.length ? vl : null;
+  const finalSort = finalGroup ? (Number.isFinite(Number(next.variant_sort)) ? Number(next.variant_sort) : null) : null;
+
+  if (finalGroup && !finalLabel) {
+    return res.status(400).json({ ok: false, error: "MISSING_VARIANT_LABEL" });
+  }
+
+  const name = normalizeVariantName(next.name, finalGroup, finalLabel);
+
   db.prepare(
     `
     UPDATE products
-    SET name=?, description=?, price_cents=?, image_url=?, is_available=?, unavailable_reason=?, updated_at=datetime('now')
+    SET
+      name=?,
+      description=?,
+      price_cents=?,
+      image_url=?,
+      weight_grams=?,
+      variant_group=?,
+      variant_label=?,
+      variant_sort=?,
+      is_available=?,
+      unavailable_reason=?,
+      updated_at=datetime('now')
     WHERE id=?
   `
-  ).run(next.name, next.description, next.price_cents, next.image_url, next.is_available ? 1 : 0, reason, id);
+  ).run(
+    name,
+    next.description,
+    next.price_cents,
+    next.image_url,
+    next.weight_grams ?? null,
+    finalGroup,
+    finalLabel,
+    finalSort,
+    next.is_available ? 1 : 0,
+    reason,
+    id
+  );
 
   res.json({ ok: true });
 });
@@ -165,25 +265,15 @@ adminRouter.get("/orders", (req, res) => {
   const params: any[] = [];
 
   if (day === "both") {
-    where.push(`pickup_date IN (?, ?)`);
-    params.push(sat, sun);
+    where.push(`pickup_date IN (?, ?)`); params.push(sat, sun);
   } else if (day === "sat") {
-    where.push(`pickup_date = ?`);
-    params.push(sat);
+    where.push(`pickup_date = ?`); params.push(sat);
   } else {
-    where.push(`pickup_date = ?`);
-    params.push(sun);
+    where.push(`pickup_date = ?`); params.push(sun);
   }
 
-  if (location !== "all") {
-    where.push(`pickup_location = ?`);
-    params.push(location);
-  }
-
-  if (status !== "all") {
-    where.push(`status = ?`);
-    params.push(status);
-  }
+  if (location !== "all") { where.push(`pickup_location = ?`); params.push(location); }
+  if (status !== "all") { where.push(`status = ?`); params.push(status); }
 
   const orderBy =
     sort === "location"
@@ -224,7 +314,6 @@ adminRouter.get("/orders", (req, res) => {
     }
   }
 
-  // summary
   const customers = new Set<string>();
   const byProduct = new Map<string, { quantity: number; customers: Set<string> }>();
 
@@ -265,10 +354,7 @@ adminRouter.get("/orders", (req, res) => {
 
   res.json({
     ok: true,
-    orders: orders.map((o) => ({
-      ...o,
-      items: itemsByOrder.get(o.id) ?? [],
-    })),
+    orders: orders.map((o) => ({ ...o, items: itemsByOrder.get(o.id) ?? [] })),
     summary,
   });
 });
@@ -370,10 +456,6 @@ adminRouter.get("/customers", (req, res) => {
   const q = String(req.query.q ?? "").trim().toLowerCase();
   const limit = Math.min(200, Math.max(10, Number(req.query.limit ?? 50)));
 
-  // on combine:
-  // - customers table (phone/notes)
-  // - orders table (historique)
-  // mais on sort une liste "unique par email"
   const rows = db
     .prepare(
       `
@@ -399,7 +481,12 @@ adminRouter.get("/customers", (req, res) => {
   }));
 
   if (q) {
-    out = out.filter((x) => x.email.toLowerCase().includes(q) || x.name.toLowerCase().includes(q) || (x.phone ?? "").includes(q));
+    out = out.filter(
+      (x) =>
+        x.email.toLowerCase().includes(q) ||
+        x.name.toLowerCase().includes(q) ||
+        (x.phone ?? "").includes(q)
+    );
   }
 
   res.json({ ok: true, customers: out.slice(0, limit) });
@@ -480,7 +567,7 @@ adminRouter.get("/stats", (req, res) => {
   const from = parsed.data.from;
   const to = parsed.data.to;
   const location = parsed.data.location ?? "all";
-  const status = parsed.data.status ?? "fulfilled"; // compta = validés par défaut
+  const status = parsed.data.status ?? "fulfilled";
 
   const where: string[] = [];
   const params: any[] = [];
@@ -549,7 +636,6 @@ adminRouter.get("/stats", (req, res) => {
     totalItemsQuantity += qty;
     totalAmountCents += price * qty;
 
-    // customer agg
     const c =
       customersMap.get(email) ??
       {
@@ -570,7 +656,6 @@ adminRouter.get("/stats", (req, res) => {
 
     customersMap.set(email, c);
 
-    // product agg
     const p =
       productsMap.get(productName) ??
       { name: productName, quantity: 0, amountCents: 0, customers: new Set<string>() };

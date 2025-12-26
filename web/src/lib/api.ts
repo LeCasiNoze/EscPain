@@ -1,4 +1,3 @@
-//web/src/lib/api.ts
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").replace(/\/$/, "");
 
 export type Product = {
@@ -10,6 +9,11 @@ export type Product = {
 
   weight_grams: number | null;
   price_per_kg_cents: number | null;
+
+  // ✅ variantes (slot multi-produits)
+  variant_group?: string | null;
+  variant_label?: string | null;
+  variant_sort?: number | null;
 
   is_available: number; // 1/0 (sqlite)
   unavailable_reason: string | null;

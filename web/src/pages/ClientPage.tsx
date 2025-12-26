@@ -18,6 +18,19 @@ function parseVariantName(name: string): ParsedVariant | null {
   return { group, option };
 }
 
+function getVariant(p: Product): ParsedVariant | null {
+  const vg = String((p as any).variant_group ?? "").trim();
+  const vl = String((p as any).variant_label ?? "").trim();
+  if (vg && vl) return { group: vg, option: vl };
+  return parseVariantName(p.name);
+}
+
+function getVariantSort(p: Product): number | null {
+  const v = (p as any).variant_sort;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return null;
+}
+
 type ProductCard =
   | { kind: "single"; product: Product }
   | { kind: "group"; group: string; options: Array<{ product: Product; label: string }>; rep: Product };
@@ -27,7 +40,7 @@ function buildProductCards(products: Product[]): ProductCard[] {
   const groups = new Map<string, Array<{ product: Product; label: string }>>();
 
   for (const p of products) {
-    const pv = parseVariantName(p.name);
+    const pv = getVariant(p);
     if (!pv) {
       singles.push(p);
       continue;
@@ -47,6 +60,12 @@ function buildProductCards(products: Product[]): ProductCard[] {
     }
 
     opts.sort((a, b) => {
+      const as = getVariantSort(a.product);
+      const bs = getVariantSort(b.product);
+      if (as != null && bs != null && as !== bs) return as - bs;
+      if (as != null && bs == null) return -1;
+      if (as == null && bs != null) return 1;
+
       const aw = a.product.weight_grams ?? null;
       const bw = b.product.weight_grams ?? null;
 
@@ -61,10 +80,7 @@ function buildProductCards(products: Product[]): ProductCard[] {
     cards.push({ kind: "group", group, options: opts, rep });
   }
 
-  const all: ProductCard[] = [
-    ...cards,
-    ...singles.map((p) => ({ kind: "single" as const, product: p })),
-  ];
+  const all: ProductCard[] = [...cards, ...singles.map((p) => ({ kind: "single" as const, product: p }))];
 
   // Global sort by display title
   all.sort((a, b) => {
@@ -216,18 +232,13 @@ export function ClientPage() {
 
   const [pickupLocation, setPickupLocation] = React.useState<"Lombard" | "Village X">("Lombard");
 
-  // On prépare une liste "large" en mémoire, mais on n’affiche qu’une partie
   const allWeekends = React.useMemo(() => weekendBlocks(24), []);
-
-  // Affichage progressif
-  const [visibleCount, setVisibleCount] = React.useState(1); // au début : 1 week-end
+  const [visibleCount, setVisibleCount] = React.useState(1);
   const [collapsed, setCollapsed] = React.useState(false);
   const [savedVisibleCount, setSavedVisibleCount] = React.useState(1);
 
-  // Date sélectionnée par défaut : samedi du 1er week-end dispo
   const [pickupDate, setPickupDate] = React.useState<string>(() => allWeekends[0]?.satYmd ?? "");
 
-  // Si jamais (rare) il n'y a pas de date au départ et qu'on en obtient, on initialise
   React.useEffect(() => {
     if (!pickupDate && allWeekends.length) setPickupDate(allWeekends[0].satYmd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -291,7 +302,7 @@ export function ClientPage() {
       if (qty <= 0) delete next[productId];
       else {
         const prod = prev[productId]?.product;
-        if (!prod) return prev; // sécurité
+        if (!prod) return prev;
         next[productId] = { product: prod, qty };
       }
       return next;
@@ -300,11 +311,10 @@ export function ClientPage() {
 
   function handleMoreDates() {
     setCollapsed(false);
-
     setVisibleCount((n) => {
       const max = allWeekends.length || 1;
-      if (n <= 1) return Math.min(2, max); // 1er clic => +1
-      return Math.min(n + 2, max); // puis +2
+      if (n <= 1) return Math.min(2, max);
+      return Math.min(n + 2, max);
     });
   }
 
@@ -642,9 +652,7 @@ export function ClientPage() {
               </button>
 
               {msg ? <div className="text-sm mt-2 whitespace-pre-wrap">{msg}</div> : null}
-              <div className="text-xs text-zinc-500">
-                (En dev, l’email est simulé : tu verras aussi le lien dans la console de l’API.)
-              </div>
+              <div className="text-xs text-zinc-500">(En dev, l’email est simulé : tu verras aussi le lien dans la console de l’API.)</div>
             </div>
           </div>
         </aside>

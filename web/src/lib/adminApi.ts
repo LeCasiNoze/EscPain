@@ -1,5 +1,3 @@
-//web/src/lib/adminApi.ts
-
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").replace(/\/$/, "");
 
 export type AdminProduct = {
@@ -8,13 +6,20 @@ export type AdminProduct = {
   description: string;
   price_cents: number;
   image_url: string;
+
+  weight_grams: number | null;
+
+  // ✅ variantes
+  variant_group: string | null;
+  variant_label: string | null;
+  variant_sort: number | null;
+
   is_available: number; // 1/0
   unavailable_reason: string | null;
   created_at: string;
   updated_at: string;
 
   // optionnel si tu les exposes côté admin
-  weight_grams?: number | null;
   price_per_kg_cents?: number | null;
 };
 
@@ -69,7 +74,12 @@ export type AdminCustomerOrder = {
 };
 
 export type AdminStats = {
-  meta: { from: string; to: string; location: "all" | "Lombard" | "Village X"; status: "fulfilled" | "pending" | "canceled" | "all" };
+  meta: {
+    from: string;
+    to: string;
+    location: "all" | "Lombard" | "Village X";
+    status: "fulfilled" | "pending" | "canceled" | "all";
+  };
   totals: { ordersCount: number; customersCount: number; totalItemsQuantity: number; totalAmountCents: number };
   products: Array<{ name: string; quantity: number; amountCents: number; customers: number }>;
   customers: Array<{
@@ -109,7 +119,6 @@ export async function adminUploadImage(pass: string, file: File) {
     method: "POST",
     headers: {
       "x-admin-password": pass,
-      // ⚠️ surtout pas Content-Type ici (le browser met le boundary)
     },
     body: fd,
   });
@@ -131,11 +140,18 @@ export function adminCreateProduct(
     description: string;
     price_cents: number;
     image_url: string;
+
+    weight_grams?: number | null;
+
+    // ✅ variantes
+    variant_group?: string | null;
+    variant_label?: string | null;
+    variant_sort?: number | null;
+
     is_available: boolean;
     unavailable_reason?: string | null;
 
     // optionnel
-    weight_grams?: number | null;
     price_per_kg_cents?: number | null;
   }
 ) {
@@ -153,10 +169,17 @@ export function adminPatchProduct(
     description: string;
     price_cents: number;
     image_url: string;
+
+    weight_grams: number | null;
+
+    // ✅ variantes
+    variant_group: string | null;
+    variant_label: string | null;
+    variant_sort: number | null;
+
     is_available: boolean;
     unavailable_reason: string | null;
 
-    weight_grams: number | null;
     price_per_kg_cents: number | null;
   }>
 ) {
