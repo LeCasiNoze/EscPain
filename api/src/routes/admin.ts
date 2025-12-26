@@ -45,35 +45,15 @@ function addDaysYMD(ymd: string, days: number) {
 
 /* -------------------- PRODUCTS -------------------- */
 
-function normOptText(v: any): string | null | undefined {
-  if (v === undefined) return undefined;
-  if (v === null) return null;
-  const s = String(v).trim();
-  return s ? s : null;
-}
-
 adminRouter.get("/products", (req, res) => {
   if (!requireAdmin(req, res)) return;
 
   const rows = db
     .prepare(
       `
-    SELECT id,
-           name,
-           description,
-           price_cents,
-           image_url,
-           group_name,
-           option_label,
-           group_order,
-           option_order,
-           weight_grams,
-           is_available,
-           unavailable_reason,
-           created_at,
-           updated_at
+    SELECT id, name, description, price_cents, image_url, is_available, unavailable_reason, created_at, updated_at
     FROM products
-    ORDER BY COALESCE(group_order, 0) ASC, COALESCE(option_order, 0) ASC, id DESC
+    ORDER BY id DESC
   `
     )
     .all();
@@ -86,15 +66,6 @@ const UpsertProduct = z.object({
   description: z.string().trim().default(""),
   price_cents: z.number().int().min(0),
   image_url: z.string().trim().default(""),
-
-  // ✅ optionnel / affichage client
-  group_name: z.string().trim().nullable().optional(),
-  option_label: z.string().trim().nullable().optional(),
-  group_order: z.number().int().nullable().optional(),
-  option_order: z.number().int().nullable().optional(),
-
-  weight_grams: z.number().int().nullable().optional(),
-
   is_available: z.boolean(),
   unavailable_reason: z.string().trim().nullable().optional(),
 });
@@ -108,34 +79,14 @@ adminRouter.post("/products", (req, res) => {
 
   const reason = p.is_available ? null : (p.unavailable_reason?.trim() || "Indisponible");
 
-  const group_name = normOptText(p.group_name) ?? null;
-  const option_label = normOptText(p.option_label) ?? null;
-
   const r = db
     .prepare(
       `
-    INSERT INTO products (
-      name, description, price_cents, image_url,
-      group_name, option_label, group_order, option_order,
-      weight_grams,
-      is_available, unavailable_reason, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO products (name, description, price_cents, image_url, is_available, unavailable_reason, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `
     )
-    .run(
-      p.name,
-      p.description,
-      p.price_cents,
-      p.image_url,
-      group_name,
-      option_label,
-      p.group_order ?? null,
-      p.option_order ?? null,
-      p.weight_grams ?? null,
-      p.is_available ? 1 : 0,
-      reason
-    );
+    .run(p.name, p.description, p.price_cents, p.image_url, p.is_available ? 1 : 0, reason);
 
   res.json({ ok: true, id: Number(r.lastInsertRowid) });
 });
@@ -158,14 +109,6 @@ adminRouter.patch("/products/:id", (req, res) => {
     description: p.description ?? cur.description,
     price_cents: p.price_cents ?? cur.price_cents,
     image_url: p.image_url ?? cur.image_url,
-
-    group_name: p.group_name !== undefined ? (normOptText(p.group_name) ?? null) : cur.group_name,
-    option_label: p.option_label !== undefined ? (normOptText(p.option_label) ?? null) : cur.option_label,
-    group_order: p.group_order !== undefined ? (p.group_order ?? null) : cur.group_order,
-    option_order: p.option_order !== undefined ? (p.option_order ?? null) : cur.option_order,
-
-    weight_grams: p.weight_grams !== undefined ? (p.weight_grams ?? null) : cur.weight_grams,
-
     is_available: typeof p.is_available === "boolean" ? p.is_available : cur.is_available === 1,
     unavailable_reason: p.unavailable_reason ?? cur.unavailable_reason,
   };
@@ -175,34 +118,10 @@ adminRouter.patch("/products/:id", (req, res) => {
   db.prepare(
     `
     UPDATE products
-    SET name=?,
-        description=?,
-        price_cents=?,
-        image_url=?,
-        group_name=?,
-        option_label=?,
-        group_order=?,
-        option_order=?,
-        weight_grams=?,
-        is_available=?,
-        unavailable_reason=?,
-        updated_at=datetime('now')
+    SET name=?, description=?, price_cents=?, image_url=?, is_available=?, unavailable_reason=?, updated_at=datetime('now')
     WHERE id=?
   `
-  ).run(
-    next.name,
-    next.description,
-    next.price_cents,
-    next.image_url,
-    next.group_name,
-    next.option_label,
-    next.group_order,
-    next.option_order,
-    next.weight_grams,
-    next.is_available ? 1 : 0,
-    reason,
-    id
-  );
+  ).run(next.name, next.description, next.price_cents, next.image_url, next.is_available ? 1 : 0, reason, id);
 
   res.json({ ok: true });
 });
@@ -217,7 +136,6 @@ adminRouter.delete("/products/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-/* -------------------- ORDERS (week-end view) -------------------- */
 /* -------------------- ORDERS (week-end view) -------------------- */
 
 const ListOrdersQuery = z.object({

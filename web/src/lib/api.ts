@@ -1,3 +1,4 @@
+//web/src/lib/api.ts
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").replace(/\/$/, "");
 
 export type Product = {
@@ -7,16 +8,8 @@ export type Product = {
   price_cents: number;
   image_url: string;
 
-  // ✅ affichage "produit groupé" côté client (optionnel)
-  group_name: string | null;   // ex: "Pain"
-  option_label: string | null; // ex: "600g"
-  group_order: number | null;
-  option_order: number | null;
-
   weight_grams: number | null;
-
-  // certains backends le renvoient, sinon on le calcule côté front
-  price_per_kg_cents?: number | null;
+  price_per_kg_cents: number | null;
 
   is_available: number; // 1/0 (sqlite)
   unavailable_reason: string | null;

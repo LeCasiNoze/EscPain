@@ -1,3 +1,5 @@
+//web/src/lib/adminApi.ts
+
 const BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").replace(/\/$/, "");
 
 export type AdminProduct = {
@@ -6,19 +8,14 @@ export type AdminProduct = {
   description: string;
   price_cents: number;
   image_url: string;
-
-  // ✅ affichage "produit groupé" côté client (optionnel)
-  group_name: string | null;     // ex: "Pain"
-  option_label: string | null;   // ex: "600g"
-  group_order: number | null;    // tri des groupes (plus petit = plus haut)
-  option_order: number | null;   // tri des options dans le groupe
-
-  weight_grams: number | null;
-
   is_available: number; // 1/0
   unavailable_reason: string | null;
   created_at: string;
   updated_at: string;
+
+  // optionnel si tu les exposes côté admin
+  weight_grams?: number | null;
+  price_per_kg_cents?: number | null;
 };
 
 export type AdminOrderItem = {
@@ -134,16 +131,12 @@ export function adminCreateProduct(
     description: string;
     price_cents: number;
     image_url: string;
-
-    // ✅ optionnel / affichage client
-    group_name?: string | null;
-    option_label?: string | null;
-    group_order?: number | null;
-    option_order?: number | null;
-    weight_grams?: number | null;
-
     is_available: boolean;
     unavailable_reason?: string | null;
+
+    // optionnel
+    weight_grams?: number | null;
+    price_per_kg_cents?: number | null;
   }
 ) {
   return req<{ ok: true; id: number }>("/api/admin/products", pass, {
@@ -160,15 +153,11 @@ export function adminPatchProduct(
     description: string;
     price_cents: number;
     image_url: string;
-
-    group_name: string | null;
-    option_label: string | null;
-    group_order: number | null;
-    option_order: number | null;
-    weight_grams: number | null;
-
     is_available: boolean;
     unavailable_reason: string | null;
+
+    weight_grams: number | null;
+    price_per_kg_cents: number | null;
   }>
 ) {
   return req<{ ok: true }>(`/api/admin/products/${id}`, pass, {
@@ -209,4 +198,50 @@ export function adminSetOrderStatus(pass: string, id: number, status: "pending" 
     method: "POST",
     body: JSON.stringify({ status }),
   });
+}
+
+export function adminRescheduleOrder(
+  pass: string,
+  id: number,
+  body: { pickup_date: string; pickup_location: "Lombard" | "Village X" }
+) {
+  return req<{ ok: true }>(`/api/admin/orders/${id}`, pass, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/* CUSTOMERS */
+export function adminUpsertCustomer(
+  pass: string,
+  body: { email: string; name?: string; phone?: string | null; notes?: string | null }
+) {
+  return req<{ ok: true }>(`/api/admin/customers`, pass, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function adminGetCustomer(pass: string, email: string) {
+  const q = new URLSearchParams({ email });
+  return req<{ ok: true; customer: AdminCustomer; orders: AdminCustomerOrder[] }>(`/api/admin/customer?${q.toString()}`, pass);
+}
+
+/* STATS */
+export function adminGetStats(
+  pass: string,
+  args: {
+    from: string;
+    to: string;
+    location?: "all" | "Lombard" | "Village X";
+    status?: "fulfilled" | "pending" | "canceled" | "all";
+  }
+) {
+  const q = new URLSearchParams({
+    from: args.from,
+    to: args.to,
+    location: args.location ?? "all",
+    status: args.status ?? "fulfilled",
+  });
+  return req<{ ok: true } & AdminStats>(`/api/admin/stats?${q.toString()}`, pass);
 }

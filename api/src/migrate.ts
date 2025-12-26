@@ -6,16 +6,6 @@ function addColumnIfMissing(table: string, column: string, ddl: string) {
   if (!exists) db.exec(ddl);
 }
 
-function splitNameOption(name: string): { group_name: string | null; option_label: string | null } {
-  // ex: "Pain (600g)" => group="Pain", option="600g"
-  const m = String(name ?? "").trim().match(/^(.*)\s*\(([^)]+)\)\s*$/);
-  if (!m) return { group_name: null, option_label: null };
-  const group_name = m[1].trim();
-  const option_label = m[2].trim();
-  if (!group_name) return { group_name: null, option_label: null };
-  return { group_name, option_label: option_label || null };
-}
-
 export function migrate() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
@@ -24,10 +14,6 @@ export function migrate() {
       description TEXT NOT NULL DEFAULT '',
       price_cents INTEGER NOT NULL,
       image_url TEXT NOT NULL DEFAULT '',
-      group_name TEXT,      -- NEW (nullable) : regroupe plusieurs produits en une "fiche" côté client
-      option_label TEXT,    -- NEW (nullable) : label de l'option (ex: 600g)
-      group_order INTEGER,  -- NEW (nullable) : tri des groupes
-      option_order INTEGER, -- NEW (nullable) : tri des options dans le groupe
       weight_grams INTEGER, -- NEW (nullable)
       is_available INTEGER NOT NULL DEFAULT 1,
       unavailable_reason TEXT,
@@ -64,14 +50,23 @@ export function migrate() {
   `);
 
   // ✅ colonnes ajoutées si DB existante
-  addColumnIfMissing("orders", "pickup_location", `ALTER TABLE orders ADD COLUMN pickup_location TEXT NOT NULL DEFAULT 'Lombard'`);
-  addColumnIfMissing("orders", "customer_phone", `ALTER TABLE orders ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''`);
+  addColumnIfMissing(
+    "orders",
+    "pickup_location",
+    `ALTER TABLE orders ADD COLUMN pickup_location TEXT NOT NULL DEFAULT 'Lombard'`
+  );
 
-  addColumnIfMissing("products", "group_name", `ALTER TABLE products ADD COLUMN group_name TEXT`);
-  addColumnIfMissing("products", "option_label", `ALTER TABLE products ADD COLUMN option_label TEXT`);
-  addColumnIfMissing("products", "group_order", `ALTER TABLE products ADD COLUMN group_order INTEGER`);
-  addColumnIfMissing("products", "option_order", `ALTER TABLE products ADD COLUMN option_order INTEGER`);
-  addColumnIfMissing("products", "weight_grams", `ALTER TABLE products ADD COLUMN weight_grams INTEGER`);
+  addColumnIfMissing(
+    "orders",
+    "customer_phone",
+    `ALTER TABLE orders ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''`
+  );
+
+  addColumnIfMissing(
+    "products",
+    "weight_grams",
+    `ALTER TABLE products ADD COLUMN weight_grams INTEGER`
+  );
 
   // -------------------- SEED MENU PAIN --------------------
   // Stratégie :
@@ -80,7 +75,9 @@ export function migrate() {
   const rows = db.prepare(`SELECT id, name FROM products ORDER BY id ASC`).all() as Array<any>;
   const names = rows.map((r) => String(r.name || ""));
 
-  const looksLikeDemoOnly = rows.length > 0 && names.every((n) => n.startsWith("Produit Démo") || n === "Produit Indisponible");
+  const looksLikeDemoOnly =
+    rows.length > 0 &&
+    names.every((n) => n.startsWith("Produit Démo") || n === "Produit Indisponible");
 
   if (rows.length === 0 || looksLikeDemoOnly) {
     // ⚠️ si tu as déjà des commandes réelles en DB, évite de supprimer.
@@ -88,7 +85,7 @@ export function migrate() {
     db.exec(`DELETE FROM products;`);
     db.exec(`DELETE FROM sqlite_sequence WHERE name='products';`);
 
-    const seedBase = [
+    const seed = [
       // Pain / formats
       {
         name: "Pain (600g)",
@@ -185,21 +182,9 @@ export function migrate() {
       },
     ];
 
-    const seed = seedBase.map((p) => {
-      const split = splitNameOption(p.name);
-      const option_order = typeof p.weight_grams === "number" ? p.weight_grams : 0;
-      return {
-        ...p,
-        group_name: split.group_name,
-        option_label: split.option_label,
-        group_order: null,
-        option_order,
-      };
-    });
-
     const ins = db.prepare(`
-      INSERT INTO products (name, description, price_cents, image_url, group_name, option_label, group_order, option_order, weight_grams, is_available, unavailable_reason)
-      VALUES (@name, @description, @price_cents, @image_url, @group_name, @option_label, @group_order, @option_order, @weight_grams, 1, NULL)
+      INSERT INTO products (name, description, price_cents, image_url, weight_grams, is_available, unavailable_reason)
+      VALUES (@name, @description, @price_cents, @image_url, @weight_grams, 1, NULL)
     `);
 
     for (const p of seed) ins.run(p);

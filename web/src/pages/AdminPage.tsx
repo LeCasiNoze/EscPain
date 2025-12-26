@@ -50,14 +50,6 @@ type Draft = {
   description: string;
   price: string; // UI "6,50"
   image_url: string;
-
-  // ✅ affichage client (optionnel)
-  group_name: string; // ex: "Pain"
-  option_label: string; // ex: "600g"
-  group_order: string; // ex: "0" (tri des groupes)
-  option_order: string; // ex: "0" (tri des options)
-  weight_grams: string; // ex: "600"
-
   is_available: boolean;
   unavailable_reason: string;
 };
@@ -68,18 +60,10 @@ function productToDraft(p: AdminProduct): Draft {
     description: p.description ?? "",
     price: (p.price_cents / 100).toFixed(2).replace(".", ","),
     image_url: p.image_url ?? "",
-
-    group_name: p.group_name ?? "",
-    option_label: p.option_label ?? "",
-    group_order: p.group_order == null ? "" : String(p.group_order),
-    option_order: p.option_order == null ? "" : String(p.option_order),
-    weight_grams: p.weight_grams == null ? "" : String(p.weight_grams),
-
     is_available: p.is_available === 1,
     unavailable_reason: p.unavailable_reason ?? "",
   };
 }
-
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -316,13 +300,6 @@ function AdminProductsView({
     description: "",
     price: "0,00",
     image_url: "",
-
-    group_name: "",
-    option_label: "",
-    group_order: "",
-    option_order: "",
-    weight_grams: "",
-
     is_available: true,
     unavailable_reason: "",
   });
@@ -379,18 +356,10 @@ function AdminProductsView({
       description: "",
       price: "0,00",
       image_url: "",
-
-      group_name: "",
-      option_label: "",
-      group_order: "",
-      option_order: "",
-      weight_grams: "",
-
       is_available: true,
       unavailable_reason: "",
     });
   }
-
 
   function startEdit(p: AdminProduct) {
     setCreating(false);
@@ -398,26 +367,13 @@ function AdminProductsView({
     setDraft(productToDraft(p));
   }
 
-    async function saveProduct() {
+  async function saveProduct() {
     setErr(null);
 
     const cents = parsePriceToCents(draft.price);
     if (!draft.name.trim()) return setErr("Nom requis.");
     if (cents === null) return setErr("Prix invalide.");
     if (!draft.is_available && !draft.unavailable_reason.trim()) return setErr("Motif requis si indisponible.");
-
-    const group_name = draft.group_name.trim() ? draft.group_name.trim() : null;
-    const option_label = draft.option_label.trim() ? draft.option_label.trim() : null;
-
-    const group_order = draft.group_order.trim() ? Math.trunc(Number(draft.group_order)) : null;
-    if (draft.group_order.trim() && !Number.isFinite(group_order as any)) return setErr("Tri groupe invalide (entier).");
-
-    const option_order = draft.option_order.trim() ? Math.trunc(Number(draft.option_order)) : null;
-    if (draft.option_order.trim() && !Number.isFinite(option_order as any)) return setErr("Tri option invalide (entier).");
-
-    const weight_grams = draft.weight_grams.trim() ? Math.trunc(Number(draft.weight_grams)) : null;
-    if (draft.weight_grams.trim() && (!Number.isFinite(weight_grams as any) || (weight_grams as any) < 0))
-      return setErr("Poids (g) invalide.");
 
     setLoading(true);
     try {
@@ -427,13 +383,6 @@ function AdminProductsView({
           description: draft.description.trim(),
           price_cents: cents,
           image_url: draft.image_url.trim(),
-
-          group_name,
-          option_label,
-          group_order,
-          option_order,
-          weight_grams,
-
           is_available: draft.is_available,
           unavailable_reason: draft.is_available ? null : draft.unavailable_reason.trim(),
         });
@@ -443,13 +392,6 @@ function AdminProductsView({
           description: draft.description.trim(),
           price_cents: cents,
           image_url: draft.image_url.trim(),
-
-          group_name,
-          option_label,
-          group_order,
-          option_order,
-          weight_grams,
-
           is_available: draft.is_available,
           unavailable_reason: draft.is_available ? null : draft.unavailable_reason.trim(),
         });
@@ -564,52 +506,7 @@ function AdminProductsView({
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                 />
 
-                
-                <div className="border rounded-2xl p-3 bg-zinc-50">
-                  <div className="text-xs text-zinc-600 font-semibold">Affichage client (optionnel)</div>
-                  <div className="text-xs text-zinc-500 mt-1">
-                    Exemple : <span className="font-semibold">Groupe</span> = "Pain" et <span className="font-semibold">Option</span> = "600g". Le
-                    client verra une seule fiche produit avec plusieurs options.
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                    <input
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      placeholder="Groupe (ex: Pain)"
-                      value={draft.group_name}
-                      onChange={(e) => setDraft((d) => ({ ...d, group_name: e.target.value }))}
-                    />
-                    <input
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      placeholder="Option (ex: 600g)"
-                      value={draft.option_label}
-                      onChange={(e) => setDraft((d) => ({ ...d, option_label: e.target.value }))}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-                    <input
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      placeholder="Ordre groupe (ex: 0)"
-                      value={draft.group_order}
-                      onChange={(e) => setDraft((d) => ({ ...d, group_order: e.target.value }))}
-                    />
-                    <input
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      placeholder="Ordre option (ex: 0)"
-                      value={draft.option_order}
-                      onChange={(e) => setDraft((d) => ({ ...d, option_order: e.target.value }))}
-                    />
-                    <input
-                      className="w-full border rounded-xl px-3 py-2 bg-white"
-                      placeholder="Poids (g) (ex: 600)"
-                      value={draft.weight_grams}
-                      onChange={(e) => setDraft((d) => ({ ...d, weight_grams: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-<div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <input
                     className="w-full border rounded-xl px-3 py-2"
                     placeholder="Prix (ex: 6,50)"

@@ -7,6 +7,111 @@ function eur(cents: number) {
 
 type Cart = Record<number, { product: Product; qty: number }>;
 
+type ParsedVariant = { group: string; option: string };
+
+function parseVariantName(name: string): ParsedVariant | null {
+  const m = String(name ?? "").match(/^(.+?)\s*\(([^()]+)\)\s*$/);
+  if (!m) return null;
+  const group = m[1].trim();
+  const option = m[2].trim();
+  if (!group || !option) return null;
+  return { group, option };
+}
+
+type ProductCard =
+  | { kind: "single"; product: Product }
+  | { kind: "group"; group: string; options: Array<{ product: Product; label: string }>; rep: Product };
+
+function buildProductCards(products: Product[]): ProductCard[] {
+  const singles: Product[] = [];
+  const groups = new Map<string, Array<{ product: Product; label: string }>>();
+
+  for (const p of products) {
+    const pv = parseVariantName(p.name);
+    if (!pv) {
+      singles.push(p);
+      continue;
+    }
+    const arr = groups.get(pv.group) ?? [];
+    arr.push({ product: p, label: pv.option });
+    groups.set(pv.group, arr);
+  }
+
+  const cards: ProductCard[] = [];
+
+  // Group cards only if there are at least 2 options. If 1 option, keep it as a normal product.
+  for (const [group, opts] of groups.entries()) {
+    if (opts.length < 2) {
+      singles.push(opts[0].product);
+      continue;
+    }
+
+    opts.sort((a, b) => {
+      const aw = a.product.weight_grams ?? null;
+      const bw = b.product.weight_grams ?? null;
+
+      if (aw != null && bw != null && aw !== bw) return aw - bw;
+      if (aw != null && bw == null) return -1;
+      if (aw == null && bw != null) return 1;
+
+      return a.label.localeCompare(b.label, "fr", { numeric: true, sensitivity: "base" });
+    });
+
+    const rep = opts.find((o) => String(o.product.image_url ?? "").trim())?.product ?? opts[0].product;
+    cards.push({ kind: "group", group, options: opts, rep });
+  }
+
+  const all: ProductCard[] = [
+    ...cards,
+    ...singles.map((p) => ({ kind: "single" as const, product: p })),
+  ];
+
+  // Global sort by display title
+  all.sort((a, b) => {
+    const an = a.kind === "group" ? a.group : a.product.name;
+    const bn = b.kind === "group" ? b.group : b.product.name;
+    return an.localeCompare(bn, "fr", { numeric: true, sensitivity: "base" });
+  });
+
+  return all;
+}
+
+function QtyStepper({
+  qty,
+  onDec,
+  onInc,
+  decDisabled,
+  incDisabled,
+}: {
+  qty: number;
+  onDec: () => void;
+  onInc: () => void;
+  decDisabled?: boolean;
+  incDisabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        className="w-9 h-9 rounded-xl border bg-white disabled:opacity-40"
+        onClick={onDec}
+        disabled={decDisabled}
+        type="button"
+      >
+        -
+      </button>
+      <div className="w-8 text-center text-sm font-semibold">{qty}</div>
+      <button
+        className="w-9 h-9 rounded-xl border bg-white disabled:opacity-40"
+        onClick={onInc}
+        disabled={incDisabled}
+        type="button"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 /** ✅ FIX images: si image_url est "/uploads/xxx.webp", on préfixe avec VITE_API_BASE */
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "http://localhost:4000").replace(/\/$/, "");
 
@@ -100,136 +205,6 @@ function findBlockForPickupDate(all: WeekendBlock[], pickupDate: string) {
   return all.find((w) => w.satYmd === pickupDate || w.sunYmd === pickupDate) ?? null;
 }
 
-/* -------------------- produits groupés -------------------- */
-
-function parseParenName(name: string): { base: string | null; opt: string | null } {
-  const m = String(name ?? "").trim().match(/^(.*)\s*\(([^)]+)\)\s*$/);
-  if (!m) return { base: null, opt: null };
-  const base = m[1].trim();
-  const opt = m[2].trim();
-  if (!base) return { base: null, opt: null };
-  return { base, opt: opt || null };
-}
-
-function groupNameOf(p: Product): string | null {
-  const gn = (p as any).group_name;
-  if (typeof gn === "string" && gn.trim()) return gn.trim();
-  const { base } = parseParenName(p.name);
-  return base;
-}
-
-function optionLabelOf(p: Product): string {
-  const ol = (p as any).option_label;
-  if (typeof ol === "string" && ol.trim()) return ol.trim();
-  const { opt } = parseParenName(p.name);
-  if (opt) return opt;
-  if (p.weight_grams && p.weight_grams > 0) return `${p.weight_grams}g`;
-  return p.name;
-}
-
-function groupOrderOf(p: Product): number {
-  const v = (p as any).group_order;
-  return Number.isFinite(Number(v)) ? Number(v) : 0;
-}
-function optionOrderOf(p: Product): number {
-  const v = (p as any).option_order;
-  if (Number.isFinite(Number(v))) return Number(v);
-  if (p.weight_grams && p.weight_grams > 0) return p.weight_grams;
-  return 0;
-}
-
-function pricePerKgCents(p: Product): number | null {
-  const explicit = (p as any).price_per_kg_cents;
-  if (explicit != null && Number.isFinite(Number(explicit))) return Number(explicit);
-  if (p.weight_grams && p.weight_grams > 0) {
-    return Math.round((p.price_cents * 1000) / p.weight_grams);
-  }
-  return null;
-}
-
-type CatalogItem =
-  | { kind: "single"; product: Product }
-  | { kind: "group"; name: string; image_url: string; description: string; group_order: number; options: Product[] };
-
-function buildCatalog(products: Product[]): CatalogItem[] {
-  const groups = new Map<string, { explicit: boolean; group_order: number; items: Product[] }>();
-  const singles: Product[] = [];
-
-  for (const p of products) {
-    const explicit = typeof (p as any).group_name === "string" && String((p as any).group_name).trim().length > 0;
-    const key = groupNameOf(p);
-
-    if (key) {
-      const cur = groups.get(key) ?? { explicit: false, group_order: groupOrderOf(p), items: [] };
-      cur.explicit = cur.explicit || explicit;
-      cur.group_order = Math.min(cur.group_order ?? 0, groupOrderOf(p));
-      cur.items.push(p);
-      groups.set(key, cur);
-    } else {
-      singles.push(p);
-    }
-  }
-
-  // si un groupe n'a qu'une seule option et qu'il vient juste du parsing "(...)" => on le laisse "single"
-  for (const [key, g] of Array.from(groups.entries())) {
-    if (g.items.length <= 1 && !g.explicit) {
-      singles.push(g.items[0]);
-      groups.delete(key);
-    }
-  }
-
-  const out: CatalogItem[] = [];
-
-  for (const [key, g] of groups.entries()) {
-    const options = [...g.items].sort((a, b) => optionOrderOf(a) - optionOrderOf(b) || a.price_cents - b.price_cents || a.id - b.id);
-
-    const image_url =
-      options.find((x) => String(x.image_url ?? "").trim().length > 0)?.image_url ??
-      options[0]?.image_url ??
-      "";
-
-    const description =
-      options.find((x) => String(x.description ?? "").trim().length > 0)?.description ??
-      options[0]?.description ??
-      "";
-
-    out.push({
-      kind: "group",
-      name: key,
-      image_url,
-      description,
-      group_order: g.group_order ?? 0,
-      options,
-    });
-  }
-
-  // singles
-  for (const p of singles) out.push({ kind: "single", product: p });
-
-  // tri final : group_order puis name/id
-  out.sort((a, b) => {
-    const ao = a.kind === "group" ? a.group_order : groupOrderOf(a.product);
-    const bo = b.kind === "group" ? b.group_order : groupOrderOf(b.product);
-    if (ao !== bo) return ao - bo;
-
-    const an = a.kind === "group" ? a.name : a.product.name;
-    const bn = b.kind === "group" ? b.name : b.product.name;
-    return an.localeCompare(bn);
-  });
-
-  return out;
-}
-
-function displayCartName(p: Product) {
-  const g = groupNameOf(p);
-  const opt = optionLabelOf(p);
-  // si le nom est déjà "Pain (600g)" et qu'on n'a pas de group, on garde
-  if (!g) return p.name;
-  // si le produit n'est pas réellement groupé (pas d'option) => on garde le nom
-  if (!opt || opt === p.name) return p.name;
-  return `${g} (${opt})`;
-}
-
 export function ClientPage() {
   const [products, setProducts] = React.useState<Product[]>([]);
   const [cart, setCart] = React.useState<Cart>({});
@@ -283,31 +258,45 @@ export function ClientPage() {
     })();
   }, []);
 
-  const catalog = React.useMemo(() => buildCatalog(products), [products]);
+  const lines = Object.values(cart);
+  const total = lines.reduce((s, l) => s + l.product.price_cents * l.qty, 0);
 
-  function setQty(p: Product, qty: number) {
+  const productCards = React.useMemo(() => buildProductCards(products), [products]);
+
+  function qtyOf(productId: number) {
+    return cart[productId]?.qty ?? 0;
+  }
+
+  function inc(p: Product) {
     setCart((prev) => {
+      const cur = prev[p.id]?.qty ?? 0;
+      return { ...prev, [p.id]: { product: p, qty: cur + 1 } };
+    });
+  }
+
+  function dec(p: Product) {
+    setCart((prev) => {
+      const cur = prev[p.id]?.qty ?? 0;
+      if (cur <= 0) return prev;
       const next = { ...prev };
-      if (qty <= 0) {
-        delete next[p.id];
-      } else {
-        next[p.id] = { product: p, qty };
-      }
+      if (cur - 1 <= 0) delete next[p.id];
+      else next[p.id] = { product: prev[p.id].product, qty: cur - 1 };
       return next;
     });
   }
 
-  function inc(p: Product) {
-    const cur = cart[p.id]?.qty ?? 0;
-    setQty(p, cur + 1);
+  function setQty(productId: number, qty: number) {
+    setCart((prev) => {
+      const next = { ...prev };
+      if (qty <= 0) delete next[productId];
+      else {
+        const prod = prev[productId]?.product;
+        if (!prod) return prev; // sécurité
+        next[productId] = { product: prod, qty };
+      }
+      return next;
+    });
   }
-  function dec(p: Product) {
-    const cur = cart[p.id]?.qty ?? 0;
-    setQty(p, cur - 1);
-  }
-
-  const lines = Object.values(cart);
-  const total = lines.reduce((s, l) => s + l.product.price_cents * l.qty, 0);
 
   function handleMoreDates() {
     setCollapsed(false);
@@ -393,135 +382,113 @@ export function ClientPage() {
               <div className="text-sm text-zinc-600">Chargement…</div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {catalog.map((it) => {
-                  if (it.kind === "single") {
-                    const p = it.product;
-                    const available = p.is_available === 1;
-                    const qty = cart[p.id]?.qty ?? 0;
-
-                    const meta: string[] = [];
-                    if (p.weight_grams && p.weight_grams > 0) meta.push(`Poids : ${p.weight_grams} g`);
-                    const ppk = pricePerKgCents(p);
-                    if (ppk != null) meta.push(`Prix/kg : ${eur(ppk)} / kg`);
+                {productCards.map((card) => {
+                  if (card.kind === "group") {
+                    const rep = card.rep;
+                    const minPrice = Math.min(...card.options.map((o) => o.product.price_cents));
 
                     return (
-                      <div key={`p-${p.id}`} className="border rounded-2xl overflow-hidden bg-white">
-                        {p.image_url ? (
-                          <img src={imgSrc(p.image_url)} alt="" className="h-36 w-full object-cover" />
+                      <div key={`group:${card.group}`} className="border rounded-2xl overflow-hidden bg-white">
+                        {rep.image_url ? (
+                          <img src={imgSrc(rep.image_url)} alt="" className="h-36 w-full object-cover" />
                         ) : (
                           <div className="h-36 w-full bg-zinc-100" />
                         )}
 
                         <div className="p-3">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="font-semibold leading-tight">{p.name}</div>
-                            <div className="text-sm font-extrabold">{eur(p.price_cents)}</div>
+                            <div className="font-semibold leading-tight">{card.group}</div>
+                            <div className="text-sm font-extrabold">dès {eur(minPrice)}</div>
                           </div>
 
-                          {p.description ? <div className="text-sm text-zinc-600 mt-1">{p.description}</div> : null}
+                          {rep.description ? <div className="text-sm text-zinc-600 mt-1">{rep.description}</div> : null}
 
-                          {meta.length ? (
-                            <div className="mt-2 text-xs text-zinc-600 flex flex-wrap gap-x-3 gap-y-1">
-                              {meta.map((m) => (
-                                <span key={m}>{m}</span>
-                              ))}
-                            </div>
-                          ) : null}
+                          <div className="mt-3 space-y-2">
+                            {card.options.map((o) => {
+                              const p = o.product;
+                              const available = p.is_available === 1;
+                              const qty = qtyOf(p.id);
 
-                          <div className="mt-3 flex items-center justify-between">
-                            {!available ? (
-                              <div className="text-sm text-zinc-500">
-                                Indisponible{p.unavailable_reason ? ` — ${p.unavailable_reason}` : ""}
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  className="w-9 h-9 rounded-xl border bg-white disabled:opacity-40"
-                                  onClick={() => dec(p)}
-                                  disabled={qty <= 0}
+                              return (
+                                <div
+                                  key={p.id}
+                                  className="flex items-center justify-between gap-3 border rounded-xl px-3 py-2"
                                 >
-                                  -
-                                </button>
-                                <div className="w-8 text-center text-sm font-semibold">{qty}</div>
-                                <button
-                                  className="w-9 h-9 rounded-xl border bg-zinc-900 text-white disabled:opacity-40"
-                                  onClick={() => inc(p)}
-                                >
-                                  +
-                                </button>
-                              </div>
-                            )}
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold truncate">{o.label}</div>
+                                    <div className="text-xs text-zinc-600">
+                                      {eur(p.price_cents)} / unité
+                                      {!available
+                                        ? ` · Indispo${p.unavailable_reason ? ` — ${p.unavailable_reason}` : ""}`
+                                        : ""}
+                                    </div>
+                                  </div>
+
+                                  <QtyStepper
+                                    qty={qty}
+                                    onDec={() => dec(p)}
+                                    onInc={() => inc(p)}
+                                    decDisabled={qty <= 0}
+                                    incDisabled={!available}
+                                  />
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
                     );
                   }
 
-                  // GROUP
-                  const minPrice = Math.min(...it.options.map((o) => o.price_cents));
-                  const hasAnyAvailable = it.options.some((o) => o.is_available === 1);
+                  // Single product
+                  const p = card.product;
+                  const available = p.is_available === 1;
+                  const qty = qtyOf(p.id);
+
+                  const meta: string[] = [];
+                  if (p.weight_grams && p.weight_grams > 0) meta.push(`Poids : ${p.weight_grams} g`);
+                  if (p.price_per_kg_cents != null) meta.push(`Prix/kg : ${eur(p.price_per_kg_cents)} / kg`);
 
                   return (
-                    <div key={`g-${it.name}`} className="border rounded-2xl overflow-hidden bg-white">
-                      {it.image_url ? (
-                        <img src={imgSrc(it.image_url)} alt="" className="h-36 w-full object-cover" />
+                    <div key={p.id} className="border rounded-2xl overflow-hidden bg-white">
+                      {p.image_url ? (
+                        <img src={imgSrc(p.image_url)} alt="" className="h-36 w-full object-cover" />
                       ) : (
                         <div className="h-36 w-full bg-zinc-100" />
                       )}
 
                       <div className="p-3">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="font-semibold leading-tight">{it.name}</div>
-                          <div className="text-sm font-extrabold">Dès {eur(minPrice)}</div>
+                          <div className="font-semibold leading-tight">{p.name}</div>
+                          <div className="text-sm font-extrabold">{eur(p.price_cents)}</div>
                         </div>
 
-                        {it.description ? <div className="text-sm text-zinc-600 mt-1">{it.description}</div> : null}
+                        {p.description ? <div className="text-sm text-zinc-600 mt-1">{p.description}</div> : null}
 
-                        <div className="mt-3 space-y-2">
-                          {it.options.map((p) => {
-                            const available = p.is_available === 1;
-                            const qty = cart[p.id]?.qty ?? 0;
-                            const label = optionLabelOf(p);
+                        {meta.length ? (
+                          <div className="mt-2 text-xs text-zinc-600 flex flex-wrap gap-x-3 gap-y-1">
+                            {meta.map((m) => (
+                              <span key={m}>{m}</span>
+                            ))}
+                          </div>
+                        ) : null}
 
-                            return (
-                              <div key={p.id} className="flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-sm font-semibold truncate">{label}</div>
-                                  <div className="text-xs text-zinc-600">
-                                    {eur(p.price_cents)}
-                                    {p.weight_grams && p.weight_grams > 0 ? ` • ${p.weight_grams} g` : ""}
-                                  </div>
-                                  {!available ? (
-                                    <div className="text-xs text-zinc-500">
-                                      Indisponible{p.unavailable_reason ? ` — ${p.unavailable_reason}` : ""}
-                                    </div>
-                                  ) : null}
-                                </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          {!available ? (
+                            <div className="text-sm text-zinc-500">
+                              Indisponible{p.unavailable_reason ? ` — ${p.unavailable_reason}` : ""}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-zinc-600">Quantité</div>
+                          )}
 
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    className="w-9 h-9 rounded-xl border bg-white disabled:opacity-40"
-                                    onClick={() => dec(p)}
-                                    disabled={qty <= 0 || !available}
-                                  >
-                                    -
-                                  </button>
-                                  <div className="w-8 text-center text-sm font-semibold">{qty}</div>
-                                  <button
-                                    className="w-9 h-9 rounded-xl border bg-zinc-900 text-white disabled:opacity-40"
-                                    onClick={() => inc(p)}
-                                    disabled={!available}
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-
-                          {!hasAnyAvailable ? (
-                            <div className="text-sm text-zinc-500">Toutes les options sont indisponibles.</div>
-                          ) : null}
+                          <QtyStepper
+                            qty={qty}
+                            onDec={() => dec(p)}
+                            onInc={() => inc(p)}
+                            decDisabled={qty <= 0}
+                            incDisabled={!available}
+                          />
                         </div>
                       </div>
                     </div>
@@ -544,19 +511,15 @@ export function ClientPage() {
                 lines.map((l) => (
                   <div key={l.product.id} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{displayCartName(l.product)}</div>
+                      <div className="text-sm font-semibold truncate">{l.product.name}</div>
                       <div className="text-xs text-zinc-600">{eur(l.product.price_cents)} / unité</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
-                        className="w-8 h-8 rounded-lg border disabled:opacity-40"
-                        onClick={() => dec(l.product)}
-                        disabled={l.qty <= 0}
-                      >
+                      <button className="w-8 h-8 rounded-lg border" onClick={() => setQty(l.product.id, l.qty - 1)}>
                         -
                       </button>
                       <div className="w-8 text-center text-sm font-semibold">{l.qty}</div>
-                      <button className="w-8 h-8 rounded-lg border" onClick={() => inc(l.product)}>
+                      <button className="w-8 h-8 rounded-lg border" onClick={() => setQty(l.product.id, l.qty + 1)}>
                         +
                       </button>
                     </div>
